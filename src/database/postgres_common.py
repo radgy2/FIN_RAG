@@ -50,6 +50,7 @@ class PostgresInsert:
         :return: 성공 여부 (bool)
         """
         data_list = self.common_util.check_and_make_list(data_list)
+
         if data_list is None:
             return False
 
@@ -59,39 +60,50 @@ class PostgresInsert:
 
                 prefix_col_list = self.table_mapping_dict[table_name]["prefix_col_list"]
                 prefix_date_col = self.table_mapping_dict[table_name]["prefix_date"]
+                table_id = self.table_mapping_dict[table_name]["table_id"]
 
+                insert_cnt = 0
+                
                 for data in data_list:
+                    # prefix 문자열 생성
                     if prefix_col_list:
                         prefix_str_list =[data[prefix_col][0] for prefix_col in prefix_col_list]
                         prefix_str_list = "".join(prefix_str_list)
                     else:
                         prefix_str_list = ""
+
+                    # prefix 날짜 생성
                     if prefix_date_col:
                         prefix_date = datetime.strptime(data[prefix_date_col], "%Y-%m-%d").strftime("%y%m%d")
                     else:
                         prefix_date = datetime.now().strftime("%y%m%d")
 
+                    # PK ID 생성 후 data에 추가
                     new_table_id = self.generate_table_id(session, table_name, prefix_str_list, prefix_date)
-                    table_id = self.table_mapping_dict[table_name]["table_id"]
                     data[table_id] = new_table_id
 
-                # 첫번째 데이터 리스트에서 컬럼명 뽑아오기 ("collect_id, data_type, ..." 형식)
-                columns = ", ".join(data_list[0].keys())
+                    # 현재 data 기준으로 컬럼/placeholder 생성
+                    columns = ", ".join(data.keys())  # ("collect_id, data_type, ..." 형식)
 
-                # 컬럼명 리스트에 해당 컬럼이 있으면 (":collect_id, :data_type", ...) 형식으로 연결
-                # SQLAlchemy가 자동으로 :collect_id → "C26040701", :data_type → "NEWS" 이런식으로 매핑(session.execute)
-                placeholders = ", ".join([f":{key}" for key in data_list[0].keys()])
+                    # 컬럼명 리스트에 해당 컬럼이 있으면 (":collect_id, :data_type", ...) 형식으로 연결
+                    # SQLAlchemy가 자동으로 :collect_id → "C26040701", :data_type → "NEWS" 이런식으로 매핑(session.execute)
+                    placeholders = ", ".join([f":{key}" for key in data.keys()])
 
-                # insert 쿼리 생성
-                query = text(f"""
-                    INSERT INTO {table_name} ({columns})
-                    VALUES ({placeholders})
-                """)
+                    # insert 쿼리 생성
+                    query = text(f"""
+                        INSERT INTO {table_name} ({columns})
+                        VALUES ({placeholders})
+                    """)
 
-                self.logger.debug(f"insert 데이터 = {data_list}")
-                session.execute(query, data_list)
+                    self.logger.debug(f"insert 쿼리 = {query}")
+                    self.logger.debug(f"insert 데이터 = {data}")
+
+                    # 한 건씩 insert
+                    session.execute(query, data)
+                    insert_cnt += 1
+
                 session.commit()
-                self.logger.info(f"{table_name} - 총 {len(data_list)}건 insert 완료)")
+                self.logger.info(f"{table_name} - 총 {insert_cnt}건 insert 완료)")
                 return True
 
             except Exception as e:
