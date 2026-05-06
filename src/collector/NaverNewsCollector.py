@@ -33,7 +33,7 @@ class NaverNewsCollector:
 
     # API 요청 단위 및 최대 수집 개수
     DISPLAY_PER_CALL = 100  # API 1회 호출당 가져올 기사 개수
-    MAX_ITEMS_PER_KEYWORD = 100  # 키워드별 최대 수집 개수
+    MAX_ITEMS_PER_KEYWORD = 1000  # 키워드별 최대 수집 개수
 
     def __init__(self, start_date: str, end_date: str):
         """
@@ -323,8 +323,8 @@ class NaverNewsCollector:
 # =========================
 if __name__ == "__main__":
     collector = NaverNewsCollector(
-        start_date="2026-04-25",
-        end_date="2026-05-01"
+        start_date="2026-01-01",
+        end_date="2026-05-06"
     )
 
     data_list = collector.run(NewsCollectorConfig.KEYWORDS_BY_CATEGORY)

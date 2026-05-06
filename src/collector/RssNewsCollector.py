@@ -255,7 +255,7 @@ if __name__ == "__main__":
 
     collector = RssNewsCollector(
         sleep_sec=0.5,
-        max_items_per_feed=1    # rss feed당 가져올 기사 개수
+        max_items_per_feed=50    # rss feed당 가져올 기사 개수
     )
 
     data_list = collector.run(
