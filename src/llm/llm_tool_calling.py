@@ -5,7 +5,7 @@ import time
 
 from src.common.setup_log import SetupLogger
 from src.llm.prompts import Prompts
-from src.llm.stock_llm_analysis import StockLLMAnalysis
+from src.llm.stock_llm_function import StockLLMAnalysis
 from src.llm.news_llm_function import NewsRagAnswerService
 
 class LLMToolCalling:
