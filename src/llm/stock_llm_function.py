@@ -21,6 +21,13 @@ FORBIDDEN_KEYWORDS = (
     "truncate", "grant", "revoke", "merge", "call", "copy",
 )
 
+# LLM이 SQL 뒤에 덧붙이는 해설 줄을 판별하는 패턴
+# (예: "### 설명", "-- 이 쿼리는...", "**참고**", "Note: ...")
+EXPLANATION_LINE_PATTERN = re.compile(
+    r"^\s*(#{1,6}(\s|$)|--|/\*|\*\*|설명|참고|주의|Explanation|Note)",
+    flags=re.IGNORECASE,
+)
+
 
 class StockLLMAnalysis:
     """
@@ -49,9 +56,24 @@ class StockLLMAnalysis:
                             - ret_low      (숫자, 비율) : 저점대비 수익률 (양수)
                             - del_yn       (불리언) : 삭제 여부. 조회 시 반드시 del_yn = false 조건 포함"""
 
-    def __init__(self):
+    def __init__(self, model_name=OLLAMA_MODEL, temperature=0.0):
+        """
+        Text-to-SQL 클래스 초기 설정
+
+        param model_name: SQL 생성에 사용할 Ollama 모델명.
+                          기본값은 모듈 상수 OLLAMA_MODEL
+        param temperature: 0 이면 같은 질문에 항상 같은 SQL이 나오고,
+                          값이 커지면 매번 달라진다.
+                          SQL은 정답이 하나뿐이라 0.0으로 둔다.
+                          (값을 넘기지 않으면 Ollama 기본값 0.8이 적용된다)
+
+        """
         self.logger = SetupLogger.get_logger()
         self.db = PostgresDB()
+
+        # 모델과 호출 옵션을 인스턴스 속성으로 보관 (LLMToolCalling과 동일한 방식)
+        self.MODEL_NAME = model_name
+        self.OPTIONS = {"temperature": temperature}
 
     def get_latest_trade_date(self):
         """
@@ -79,7 +101,7 @@ class StockLLMAnalysis:
 
         스키마를 프롬프트에 명시해 LLM이 실제 존재하는 컬럼만 쓰도록 유도하고,
         자주 틀리는 패턴(날짜함수/특정 종목의 최근 N일)은 Few-shot 예시로 교정한다.
-        생성 결과에서 마크다운 코드펜스(```)를 제거해 순수 SQL만 반환한다.
+        생성 결과는 _extract_sql로 코드펜스와 해설을 걷어내 순수 SQL만 반환한다.
 
         param question: 사용자 자연어 질문(str)
         param error_feedback: 직전 실행 에러 메시지(str). 재시도 시 LLM에게 전달해 교정 유도
@@ -109,15 +131,26 @@ class StockLLMAnalysis:
                 {date_context}
                 
                 규칙:
-                - 반드시 SELECT 문만 작성하세요. 데이터를 변경하는 문(INSERT/UPDATE/DELETE/DROP 등)은 금지입니다.
-                - 항상 WHERE 조건에 del_yn = false 를 포함하세요.
-                - INTERVAL 등 날짜 연산은 사용할 수 있습니다. 단 CURRENT_DATE, NOW()는 절대 쓰지 마세요.
-                  ('오늘'은 실제 달력 날짜가 아니라 데이터의 최신 거래일 MAX(trade_date)를 뜻합니다)
-                - 스키마에 없는 테이블/컬럼은 절대 쓰지 마세요.
-                - 결과가 많을 수 있으면 LIMIT 을 붙이세요.
-                - SELECT 절에 가능하면 ticker_name, ticker_code, trade_date 를 포함하세요.
-                  (결과를 종목별 JSON으로 묶는 데 필요합니다)
-                
+                    - 반드시 SELECT 문만 작성하세요. 데이터를 변경하는 문(INSERT/UPDATE/DELETE/DROP 등)은 금지입니다.
+                    - 항상 WHERE 조건에 del_yn = false 를 포함하세요.
+                    - INTERVAL 등 날짜 연산은 사용할 수 있습니다. 단 CURRENT_DATE, NOW()는 절대 쓰지 마세요.
+                      ('오늘'은 실제 달력 날짜가 아니라 데이터의 최신 거래일 MAX(trade_date)를 뜻합니다)
+                    - 스키마에 없는 테이블/컬럼은 절대 쓰지 마세요.
+                    - 결과가 많을 수 있으면 LIMIT 을 붙이세요.
+                    - SELECT 절에 가능하면 ticker_name, ticker_code, trade_date 를 포함하세요.
+                      (결과를 종목별 JSON으로 묶는 데 필요합니다)
+                    
+                종목명 추출 규칙:
+                    - ticker_name 에는 회사 이름만 넣으세요.
+                    - "요즘", "최근", "오늘", "어제", "지난주", "이번주", "며칠", "얼마 전" 같은 시간 표현은
+                      ticker_name 에 넣지 마세요. 이런 표현은 ORDER BY trade_date DESC 와 LIMIT 으로 처리하세요.
+                    - 기간을 숫자로 말하지 않았으면 LIMIT 20 을 쓰세요. ("요즘", "최근" → LIMIT 20)
+                    - "주식", "주가", "종목", "차트", "흐름", "추이" 같은 단어도 ticker_name 에서 빼세요.
+                    - 영문이 섞인 종목명은 대문자로 쓰세요. (sk하이닉스 → 'SK하이닉스')
+                    - 예: "요즘 두산로보틱스 주식 흐름 알려줘"
+                          → ticker_name = '두산로보틱스'      (O)
+                          → ticker_name = '요즘 두산로보틱스'  (X)
+
                 자주 하는 질문의 올바른 쿼리 예시:
                 
                 예시1) "경농 최근 5일 종가 보여줘" (특정 종목의 최근 N일 → 그 종목만 필터 후 정렬+LIMIT)
@@ -159,21 +192,85 @@ class StockLLMAnalysis:
                 ) AND del_yn = false
                 ORDER BY volume DESC
                 LIMIT 5
+                
+                예시6) "요즘 두산로보틱스 주식 흐름 알려줘" (시간 표현 "요즘"과 접미어 "주식"은 ticker_name 에서 제외)
+                SELECT ticker_name, ticker_code, trade_date, open_price, high_price, low_price, close_price
+                FROM t_stock_price_data
+                WHERE ticker_name = '두산로보틱스' AND del_yn = false
+                ORDER BY trade_date DESC
+                LIMIT 20
+
                 {error_block}
                 질문: "{question}"
                 
                 SQL:"""
 
         response = ollama.chat(
-            model=OLLAMA_MODEL,
+            model=self.MODEL_NAME,
             messages=[{"role": "user", "content": prompt}],
+            options=self.OPTIONS,
         )
-        sql = response["message"]["content"].strip()
-        # 마크다운 코드펜스 제거 (```sql ... ``` 형태로 감싸는 경우 대비)
-        sql = re.sub(r"^```[a-zA-Z]*\s*", "", sql)
-        sql = re.sub(r"\s*```$", "", sql).strip()
+
+        # 코드펜스와 해설 문장을 걷어내고 순수 SELECT 문만 남긴다
+        sql = self._extract_sql(response["message"]["content"])
+
         self.logger.debug(f"[LLM 생성 SQL] question={question!r}\n{sql}")
         return sql
+
+    @staticmethod
+    def _extract_sql(raw_content):
+        """
+        LLM 응답에서 실행할 SELECT 문만 추출
+
+        모델이 "설명 없이 SQL만 출력하세요" 지시를 어기고
+        SQL 앞뒤에 머리말이나 "### 설명" 같은 해설을 붙이는 경우가 있다.
+        이를 그대로 넘기면 세 곳에서 문제가 생긴다.
+          1. is_safe_sql : 해설 앞의 세미콜론이 다중 문장으로 판정되어 거부
+          2. is_safe_sql : 해설에 섞인 영어 단어(update, create 등)가 금지 키워드로 판정
+          3. enforce_limit: 문장 끝 LIMIT 정규식이 빗나가 해설 뒤에 LIMIT이 붙어 문법 오류
+
+        추출 후에도 is_safe_sql 검증은 그대로 수행되므로,
+        잘라낸 결과가 SELECT가 아니거나 금지 키워드를 포함하면 실행되지 않는다.
+
+        param raw_content: LLM이 반환한 원본 문자열
+
+        return: str - 추출된 SELECT 문 (추출 실패 시 빈 문자열)
+        """
+        text_block = (raw_content or "").strip()
+
+        # 1. 마크다운 코드펜스 안의 내용만 사용 (```sql ... ``` 형태)
+        fenced = re.search(
+            r"```[a-zA-Z]*\s*(.+?)\s*```",
+            text_block,
+            flags=re.DOTALL,
+        )
+        if fenced:
+            text_block = fenced.group(1).strip()
+        else:
+            # 펜스가 열린 채 끝난 경우까지 대비해 남은 백틱을 제거
+            text_block = re.sub(r"^```[a-zA-Z]*\s*", "", text_block)
+            text_block = re.sub(r"\s*```$", "", text_block).strip()
+
+        # 2. SELECT 이전의 머리말 제거 (예: "다음은 요청한 쿼리입니다:")
+        #    SELECT 앞의 내용은 버려지므로 실행 대상이 될 수 없다
+        select_match = re.search(r"\bselect\b", text_block, flags=re.IGNORECASE)
+        if not select_match:
+            return ""
+        text_block = text_block[select_match.start():]
+
+        # 3. 첫 세미콜론까지가 하나의 문장. 그 뒤에 붙은 해설이나 추가 문장은 버린다
+        semicolon_index = text_block.find(";")
+        if semicolon_index != -1:
+            text_block = text_block[:semicolon_index]
+
+        # 4. 세미콜론이 없으면 해설이 시작되는 줄에서 자른다
+        sql_lines = []
+        for line in text_block.splitlines():
+            if EXPLANATION_LINE_PATTERN.match(line):
+                break
+            sql_lines.append(line)
+
+        return "\n".join(sql_lines).strip()
 
     def is_safe_sql(self, sql):
         """
@@ -200,6 +297,8 @@ class StockLLMAnalysis:
             return False, "SELECT 문이 아님"
 
         # 2. 세미콜론 다중 문장 차단 (끝의 세미콜론 하나는 허용)
+        #    _extract_sql이 첫 세미콜론까지만 남기므로 정상 흐름에서는 걸리지 않는다.
+        #    추출을 거치지 않고 직접 호출되는 경우를 위한 2차 방어선으로 유지한다.
         if ";" in sql.rstrip().rstrip(";"):
             return False, "여러 문장(;) 실행은 허용되지 않음"
 
