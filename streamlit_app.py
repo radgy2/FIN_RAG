@@ -396,12 +396,25 @@ def render_stock_chart(stock_data: dict):
             dict(values=missing_dates.strftime("%Y-%m-%d").tolist())
         )
 
+    # 캔들마다 날짜를 보여주기 위해 거래일 전체를 눈금으로 지정한다.
+    # 단 조회 행이 많으면 라벨이 겹치므로 30일 이하일 때만 적용하고,
+    # 그보다 많으면 Plotly 자동 선택에 맡긴다. (MAX_LIMIT 이 100 이라 최대 100행까지 올 수 있음)
+    tick_settings = {}
+
+    if len(stock_df.index) <= 30:
+        tick_settings = {
+            "tickmode": "array",
+            "tickvals": stock_df.index,
+        }
+
     fig.update_xaxes(
         showgrid=True,
         gridcolor="#eef1f6",
         rangebreaks=date_rangebreaks,
         # 툴팁 날짜를 'Aug 12, 2026' 대신 '2026-08-12' 로 표시 (테이블 날짜 형식과 통일)
         hoverformat="%Y-%m-%d",
+        tickformat="%m-%d",
+        **tick_settings,
     )
 
     fig.update_yaxes(
