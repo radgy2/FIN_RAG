@@ -139,6 +139,8 @@ class StockLLMAnalysis:
                     - 결과가 많을 수 있으면 LIMIT 을 붙이세요.
                     - SELECT 절에 가능하면 ticker_name, ticker_code, trade_date 를 포함하세요.
                       (결과를 종목별 JSON으로 묶는 데 필요합니다)
+                    - "주가 흐름", "추이", "차트" 질문에는 open_price, high_price, low_price, close_price 네 개를 모두 포함하세요.
+
                     
                 종목명 추출 규칙:
                     - ticker_name 에는 회사 이름만 넣으세요.
@@ -214,7 +216,7 @@ class StockLLMAnalysis:
         # 코드펜스와 해설 문장을 걷어내고 순수 SELECT 문만 남긴다
         sql = self._extract_sql(response["message"]["content"])
 
-        self.logger.debug(f"[LLM 생성 SQL] question={question!r}\n{sql}")
+        self.logger.info(f"[LLM 생성 SQL] question={question!r}\n{sql}")
         return sql
 
     @staticmethod
