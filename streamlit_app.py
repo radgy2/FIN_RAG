@@ -322,6 +322,17 @@ def render_stock_chart(stock_data: dict):
     if ticker_code:
         chart_title += f" ({ticker_code})"
 
+    # 캔들 차트의 기본 툴팁은 항목명이 open/high/low/close 로 고정되어 바꿀 수 없다.
+    # 그래서 OHLC 값을 customdata 로 따로 넘기고 hovertemplate 에서 한글 항목명을 직접 지정한다.
+    hover_data = stock_df[
+        [
+            "open_price",
+            "high_price",
+            "low_price",
+            "close_price",
+        ]
+    ].values
+
     fig = go.Figure(
         data=[
             go.Candlestick(
@@ -335,6 +346,16 @@ def render_stock_chart(stock_data: dict):
                 increasing_fillcolor="#ef4444",
                 decreasing_fillcolor="#2563eb",
                 name=ticker_name,
+                customdata=hover_data,
+                # customdata 순서는 시가, 고가, 저가, 종가
+                # <extra></extra> 는 툴팁 오른쪽에 붙는 종목명 박스를 제거한다
+                hovertemplate=(
+                    "시가 %{customdata[0]:,}원<br>"
+                    "고가 %{customdata[1]:,}원<br>"
+                    "저가 %{customdata[2]:,}원<br>"
+                    "종가 %{customdata[3]:,}원"
+                    "<extra></extra>"
+                ),
             )
         ]
     )
@@ -358,9 +379,29 @@ def render_stock_chart(stock_data: dict):
         hovermode="x unified",
     )
 
+    # 거래일이 아닌 날짜(주말·공휴일)를 x축에서 제거해 캔들 사이 빈칸을 없앤다.
+    # 조회 기간의 전체 날짜에서 실제 거래일을 빼는 방식이므로
+    # 주말뿐 아니라 공휴일(예: 제헌절)도 별도 관리 없이 자동으로 걸러진다.
+    all_dates = pd.date_range(
+        start=stock_df.index.min(),
+        end=stock_df.index.max(),
+        freq="D",
+    )
+    missing_dates = all_dates.difference(stock_df.index)
+
+    date_rangebreaks = []
+
+    if len(missing_dates) > 0:
+        date_rangebreaks.append(
+            dict(values=missing_dates.strftime("%Y-%m-%d").tolist())
+        )
+
     fig.update_xaxes(
         showgrid=True,
         gridcolor="#eef1f6",
+        rangebreaks=date_rangebreaks,
+        # 툴팁 날짜를 'Aug 12, 2026' 대신 '2026-08-12' 로 표시 (테이블 날짜 형식과 통일)
+        hoverformat="%Y-%m-%d",
     )
 
     fig.update_yaxes(
@@ -387,13 +428,26 @@ def render_stock_table(stock_data: dict):
 
     stock_df = pd.DataFrame(price_data)
 
+    # 삭제 여부 플래그는 내부용이라 화면에 표시하지 않는다
+    stock_df = stock_df.drop(columns=["del_yn"], errors="ignore")
+
+    # LLM이 생성하는 SQL에 따라 조회되는 컬럼이 매번 달라지므로
+    # 나올 수 있는 컬럼을 모두 한글명으로 등록해 둔다.
+    # 등록되지 않은 컬럼은 DB 컬럼명(ma_20 등)이 그대로 노출된다.
     rename_columns = {
         "trade_date": "날짜",
+        "ticker_name": "종목명",
+        "ticker_code": "종목코드",
         "open_price": "시가",
         "high_price": "고가",
         "low_price": "저가",
         "close_price": "종가",
         "volume": "거래량",
+        "daily_change": "전일대비",
+        "ma_20": "20일 이동평균",
+        "volatility": "변동성",
+        "dd_high": "고점대비 낙폭",
+        "ret_low": "저점대비 수익률",
     }
 
     available_columns = {
@@ -410,21 +464,50 @@ def render_stock_table(stock_data: dict):
             errors="coerce",
         ).dt.strftime("%Y-%m-%d")
 
-    number_columns = [
+    # 천단위 구분 기호를 붙일 컬럼 (154000 → 154,000)
+    amount_columns = [
         "시가",
         "고가",
         "저가",
         "종가",
         "거래량",
+        "20일 이동평균",
+        "변동성",
     ]
 
+    # DB에 비율로 저장된 컬럼은 백분율로 표시 (-0.3214 → -32.14%)
+    ratio_columns = [
+        "전일대비",
+        "고점대비 낙폭",
+        "저점대비 수익률",
+    ]
+
+    # 변동성처럼 소수점이 긴 값은 소수 첫째 자리까지만 남긴다 (22012.616 → 22012.6)
+    # 정수 컬럼은 int64 dtype 이 유지되므로 소수점이 붙지 않는다
+    for column in amount_columns:
+        if column in stock_df.columns:
+            stock_df[column] = pd.to_numeric(
+                stock_df[column],
+                errors="coerce",
+            ).round(1)
+
+    # 컬럼별 표시 형식을 지정한다.
+    # Streamlit 프리셋을 사용하며 localized 는 천단위 구분 기호,
+    # percent 는 값에 100을 곱해 % 로 표기한다.
     column_config = {}
 
-    for column in number_columns:
+    for column in amount_columns:
         if column in stock_df.columns:
             column_config[column] = st.column_config.NumberColumn(
                 column,
-                format="%d",
+                format="localized",
+            )
+
+    for column in ratio_columns:
+        if column in stock_df.columns:
+            column_config[column] = st.column_config.NumberColumn(
+                column,
+                format="percent",
             )
 
     st.dataframe(
