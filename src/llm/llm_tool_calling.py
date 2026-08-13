@@ -118,8 +118,16 @@ class LLMToolCalling:
         self.logger.info(f"[사용자 질문]: {user_question}")
 
         try:
+            called_tools = set()
             # 한 질문에서 LLM이 도구를 무한 반복 호출하는 상황을 방지하기 위해 최대 5번까지만 LLM을 호출
             for loop_count in range(1, 6):
+
+                remaining_tools = [
+                    tool
+                    for tool in [self.search_news, self.search_stock]
+                    if tool.__name__ not in called_tools
+                ]
+
                 self.logger.info(f"[LLM 호출 #{loop_count}]")
 
                 llm_start_time = time.perf_counter()
@@ -128,7 +136,7 @@ class LLMToolCalling:
                 response = chat(
                     model=self.MODEL_NAME,
                     messages=messages,  # 현재까지 누적된 시스템, 사용자, assistant, tool 메시지 전달
-                    tools=[self.search_news, self.search_stock],  # LLM이 사용할 수 있는 Python 함수 목록
+                    tools=remaining_tools if remaining_tools else None,  # LLM이 사용할 수 있는 Python 함수 목록
                 )
 
                 # 현재 LLM 호출에 걸린 시간 계산
@@ -169,6 +177,19 @@ class LLMToolCalling:
                     # LLM이 생성한 함수 호출 인자 ex.{"ticker_name": "삼성전자", "period_days": 30}
                     arguments = tool_call.function.arguments
 
+                    if function_name in called_tools:
+                        self.logger.warning(f"[중복 도구 호출 차단] - {function_name}")
+
+                        messages.append(
+                            {
+                                "role": "tool",
+                                "tool_name": function_name,
+                                "content": "이미 실행한 도구입니다.",
+                            }
+                        )
+                        continue
+
+                    called_tools.add(function_name)
                     self.logger.info(f"[LLM이 선택한 도구 - 함수명: {function_name}, 인자: {arguments}]")
 
                     # 함수 이름을 이용해 실제 Python 함수 객체를 조회
@@ -222,7 +243,8 @@ class LLMToolCalling:
                     # LLM은 해당 결과를 참고하여 최종 자연어 답변을 생성하거나 추가 도구 호출을 요청한다.
 
             # 최대 5번까지 LLM을 호출했는데도 계속 도구 호출을 요청한 경우 반환
-            return "도구 호출 횟수 제한을 초과했습니다."
+            all_result["assistant_message"] = "도구 호출 횟수 제한을 초과했습니다."
+            return all_result
 
         finally:
             # run_agent 함수가 정상 반환되거나, 중간에 예외가 발생하더라도 전체 실행 시간을 기록
