@@ -116,6 +116,18 @@ class NewsChunker:
 
         return content_chunk
 
+    def find_table_news_ids(self, news_rows: list[dict]) -> list[int]:
+        table_news_ids = []
+
+        for row in news_rows:
+            news_id = row.get("news_id")
+            title = str(row.get("news_title") or "")
+
+            if "[표]" in title:
+                table_news_ids.append(news_id)
+
+        return table_news_ids
+
     def chunk_article(
             self,
             row: dict,
@@ -174,14 +186,24 @@ class NewsChunker:
             "True"
         )
 
-        quiz_news_id_set = set(quiz_news_ids)
+        self.logger.info("[표] 제목 기사 판별 시작")
+        table_news_ids = self.find_table_news_ids(news_rows)
+
+        self.postgres_update.update_data_to_postgres(
+            "t_news_data",
+            table_news_ids,
+            "del_yn",
+            "True"
+        )
+
+        deleted_news_id_set = set(quiz_news_ids) | set(table_news_ids)
 
         target_news_rows = [
             row for row in news_rows
-            if row.get("news_id") not in quiz_news_id_set
+            if row.get("news_id") not in deleted_news_id_set
         ]
 
-        self.logger.info(f"퀴즈 제외 후 청킹 대상 뉴스 수 - {len(target_news_rows)}건")
+        self.logger.info(f"삭제 대상 제외 후 청킹 대상 뉴스 수 - {len(target_news_rows)}건")
 
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=chunk_size,
@@ -226,7 +248,9 @@ class NewsChunker:
             f"""
 ==================== 뉴스 청킹 작업 완료 ====================
 전체 조회 뉴스 수          : {len(news_rows)}
-삭제 기사 수              : {len(quiz_news_ids)}
+퀴즈 삭제 기사 수          : {len(quiz_news_ids)}
+[표] 제목 삭제 기사 수     : {len(table_news_ids)}
+삭제 기사 수              : {len(deleted_news_id_set)}
 청킹 대상 뉴스 수          : {len(target_news_rows)}
 생성된 청크 수             : {len(all_chunks)}
 ============================================================

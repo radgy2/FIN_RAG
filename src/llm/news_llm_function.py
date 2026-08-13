@@ -227,27 +227,6 @@ class NewsRagAnswerService:
 
         return news_data
 
-    def answer_question(
-        self,
-        question: str,
-        limit: int = DEFAULT_LIMIT,
-        min_similarity: float | None = None,
-    ) -> dict[str, Any]:
-        """
-        기존 호출부 호환용. 별도 LLM 답변 생성 없이 검색 결과만 JSON으로 반환한다.
-        """
-        # 예전 answer_question 호출부가 깨지지 않도록 동일한 검색 결과를 감싸서 반환
-        news_data = self.ask(
-            question=question,
-            limit=limit,
-            min_similarity=min_similarity,
-        )
-        return {
-            "question": question,
-            "answer": "",
-            "retrieved_news": news_data,
-        }
-
 
 def main() -> None:
     sys.stdout.reconfigure(encoding="utf-8")
