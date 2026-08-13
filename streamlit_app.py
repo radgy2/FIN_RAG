@@ -92,6 +92,23 @@ div[data-testid="stVerticalBlockBorderWrapper"] {
     line-height: 1.7;
 }
 
+.data-period-note {
+    margin-top: -18px;
+    margin-bottom: -4px;
+    padding-right: 10px;
+    text-align: right;
+    color: #7c8597;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    .data-period-note {
+        margin-top: 10px;
+        text-align: left;
+    }
+}
+
 /* FIN-RAG 배지 */
 .service-badge {
     display: inline-block;
@@ -590,6 +607,15 @@ with st.container(border=True):
 """,
             unsafe_allow_html=True,
         )
+
+    st.markdown(
+        """
+<div class="data-period-note">
+    ※ 데이터 수집 기간 : 2026.01.01 ~ 2026.08.31 (주식·뉴스)
+</div>
+""",
+        unsafe_allow_html=True,
+    )
 
 
 st.write("")
