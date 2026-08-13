@@ -139,6 +139,8 @@ class StockLLMAnalysis:
                     - 결과가 많을 수 있으면 LIMIT 을 붙이세요.
                     - SELECT 절에 가능하면 ticker_name, ticker_code, trade_date 를 포함하세요.
                       (결과를 종목별 JSON으로 묶는 데 필요합니다)
+                    - "주가 흐름", "추이", "차트" 질문에는 open_price, high_price, low_price, close_price 네 개를 모두 포함하세요.
+
                     
                 종목명 추출 규칙:
                     - ticker_name 에는 회사 이름만 넣으세요.
@@ -150,6 +152,11 @@ class StockLLMAnalysis:
                     - 예: "요즘 두산로보틱스 주식 흐름 알려줘"
                           → ticker_name = '두산로보틱스'      (O)
                           → ticker_name = '요즘 두산로보틱스'  (X)
+                          
+                [종목명 약칭] 질문에 아래 약칭이 나오면 오른쪽 공식 종목명으로 조회하세요.
+                    삼전 = 삼성전자          하이닉스 = SK하이닉스      현차 = 현대차
+                    삼바 = 삼성바이오로직스   셀트 = 셀트리온           한전 = 한국전력
+                    두로 = 두산로보틱스       카뱅 = 카카오뱅크          엘지전자 = LG전자
 
                 자주 하는 질문의 올바른 쿼리 예시:
                 
@@ -199,6 +206,20 @@ class StockLLMAnalysis:
                 WHERE ticker_name = '두산로보틱스' AND del_yn = false
                 ORDER BY trade_date DESC
                 LIMIT 20
+                
+                예시7) "삼전 주가 흐름 어때?" (약칭은 공식 종목명으로 바꿔 조회. 삼전 = 삼성전자)
+                SELECT ticker_name, ticker_code, trade_date, open_price, high_price, low_price, close_price
+                FROM t_stock_price_data
+                WHERE ticker_name = '삼성전자' AND del_yn = false
+                ORDER BY trade_date DESC
+                LIMIT 20
+                
+                예시8) "하이닉스 최근 5일 주가 어때?" (앞 회사명을 뗀 약칭도 공식 종목명으로 바꿔 조회)
+                SELECT ticker_name, ticker_code, trade_date, open_price, high_price, low_price, close_price
+                FROM t_stock_price_data
+                WHERE ticker_name = 'SK하이닉스' AND del_yn = false
+                ORDER BY trade_date DESC
+                LIMIT 5
 
                 {error_block}
                 질문: "{question}"
@@ -214,7 +235,7 @@ class StockLLMAnalysis:
         # 코드펜스와 해설 문장을 걷어내고 순수 SELECT 문만 남긴다
         sql = self._extract_sql(response["message"]["content"])
 
-        self.logger.debug(f"[LLM 생성 SQL] question={question!r}\n{sql}")
+        self.logger.info(f"[LLM 생성 SQL] question={question!r}\n{sql}")
         return sql
 
     @staticmethod
