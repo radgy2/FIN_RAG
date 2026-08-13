@@ -152,6 +152,11 @@ class StockLLMAnalysis:
                     - 예: "요즘 두산로보틱스 주식 흐름 알려줘"
                           → ticker_name = '두산로보틱스'      (O)
                           → ticker_name = '요즘 두산로보틱스'  (X)
+                          
+                [종목명 약칭] 질문에 아래 약칭이 나오면 오른쪽 공식 종목명으로 조회하세요.
+                    삼전 = 삼성전자          하이닉스 = SK하이닉스      현차 = 현대차
+                    삼바 = 삼성바이오로직스   셀트 = 셀트리온           한전 = 한국전력
+                    두로 = 두산로보틱스       카뱅 = 카카오뱅크          엘지전자 = LG전자
 
                 자주 하는 질문의 올바른 쿼리 예시:
                 
@@ -201,6 +206,20 @@ class StockLLMAnalysis:
                 WHERE ticker_name = '두산로보틱스' AND del_yn = false
                 ORDER BY trade_date DESC
                 LIMIT 20
+                
+                예시7) "삼전 주가 흐름 어때?" (약칭은 공식 종목명으로 바꿔 조회. 삼전 = 삼성전자)
+                SELECT ticker_name, ticker_code, trade_date, open_price, high_price, low_price, close_price
+                FROM t_stock_price_data
+                WHERE ticker_name = '삼성전자' AND del_yn = false
+                ORDER BY trade_date DESC
+                LIMIT 20
+                
+                예시8) "하이닉스 최근 5일 주가 어때?" (앞 회사명을 뗀 약칭도 공식 종목명으로 바꿔 조회)
+                SELECT ticker_name, ticker_code, trade_date, open_price, high_price, low_price, close_price
+                FROM t_stock_price_data
+                WHERE ticker_name = 'SK하이닉스' AND del_yn = false
+                ORDER BY trade_date DESC
+                LIMIT 5
 
                 {error_block}
                 질문: "{question}"
